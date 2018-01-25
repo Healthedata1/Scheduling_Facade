@@ -1,0 +1,175 @@
+<h1>Welcome to Argonaut Project test scheduler</h1>
+  <p>
+    See the <a href="https://github.com/argonautproject/scheduling/wiki">Argonaut Scheduling Wiki</a> and <a href="http://build.fhir.org/ig/argonautproject/scheduling/">Draft IG</a> for more details
+  </p>
+  <p>
+    Currently this application is using the FHIR reference implementation at <code>{{ ref_server }}</code>. Choose a different reference FHIR server if you like.
+  </p>
+  <form name="myForm" action="" method="post">
+    <input type="radio" name="options" id="option1" value="http://test.fhir.org/r3"> FHIR Reference Server: (http://test.fhir.org/r3) </input><br>
+    <input type="radio" name="options" id="option2" value="http://vonk.furore.com"> Vonk (http://vonk.furore.com/) </input><br>
+    <input type="radio" name="options" id="option3" value="http://fhirtest.uhn.ca/baseDstu3"> HAPI = (http://fhirtest.uhn.ca/baseDstu3) </input><br>
+    <input type="radio" name="options" id="option4" value="http://sqlonfhir-stu3.azurewebsites.net/fhir"> Telstra = (http://sqlonfhir-stu3.azurewebsites.net/fhir) </input><br>
+  <br>
+  <input type="submit" value="Change_FHIR_Server">
+</form>
+
+<h1>Test Data:</h1>
+
+<table border="1" >
+<thead>
+<tr>
+<th>id</th>
+<th>practitioner</th>
+<th>gender</th>
+<th>npi</th>
+<th>specialty_name</th>
+<th>specialty_code</th>
+<th>specialty_code2</th>
+<th>specialty_name2</th>
+<th>organization</th>
+<th>location</th>
+<th>zip</th>
+<th>Working Hours</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>arg-s-1</td>
+<td>Dr. Philip Boyce</td>
+<td>male</td>
+<td>1521001101</td>
+<td>Dermatology</td>
+<td>394582007</td>
+<td></td>
+<td>Cosmetic Dermatology</td>
+<td>San Jose Dermatology Clinic</td>
+<td>San Jose</td>
+<td>94121</td>
+<td>M-F 10am - 5pm</td>
+</tr>
+<tr>
+<td>arg-s-2</td>
+<td>Dr. Phlox Billingsley</td>
+<td>male</td>
+<td>1521001102</td>
+<td>Dermatology</td>
+<td>394582007</td>
+<td></td>
+<td></td>
+<td>San Jose Dermatology Clinic</td>
+<td>San Jose</td>
+<td>94121</td>
+<td>M-F 10am - 5pm</td>
+</tr>
+<tr>
+<td>arg-s-3</td>
+<td>Dr. Leonard McCoy</td>
+<td>male</td>
+<td>1521001103</td>
+<td>Family Medicine</td>
+<td>419772000</td>
+<td></td>
+<td></td>
+<td>San Francisco Family Care</td>
+<td>San Francisco</td>
+<td>94016</td>
+<td>M-F 8am - 4pm</td>
+</tr>
+<tr>
+<td>arg-s-4</td>
+<td>Dr. Katherine Pulaski</td>
+<td>female</td>
+<td>1521001104</td>
+<td>Family Medicine</td>
+<td>419772000</td>
+<td></td>
+<td></td>
+<td>San Francisco Family Care</td>
+<td>San Francisco</td>
+<td>94016</td>
+<td>M, W, F 8am - 4pm</td>
+</tr>
+<tr>
+<td>arg-s-5</td>
+<td>Dr. Lewis Zimmerman</td>
+<td>male</td>
+<td>1521001105</td>
+<td>Family Medicine</td>
+<td>419772000</td>
+<td></td>
+<td></td>
+<td>San Jose Family Clinic</td>
+<td>San Jose</td>
+<td>95014</td>
+<td>M-Th 9am - 5pm</td>
+</tr>
+<tr>
+<td>arg-s-6</td>
+<td>Dr. Elizabeth Lense</td>
+<td>female</td>
+<td>1521001106</td>
+<td>Family Medicine</td>
+<td>419772000</td>
+<td></td>
+<td></td>
+<td>Sacramento Family Clinic</td>
+<td>Sacramento</td>
+<td>95815</td>
+<td>M-Th 8am - 5pm</td>
+</tr>
+<tr>
+<td>arg-s-7</td>
+<td>Dr. Christine Chapel</td>
+<td>female</td>
+<td>1521001107</td>
+<td>Gastroenterology</td>
+<td>394584008</td>
+<td></td>
+<td></td>
+<td>San Francisco Gastroenterology</td>
+<td>San Francisco</td>
+<td>94132</td>
+<td>M, Th 10am - 3pm</td>
+</tr>
+<tr>
+<td>arg-s-8</td>
+<td>Dr. Beverly Crusher</td>
+<td>female</td>
+<td>1521001108</td>
+<td>Pediatrics</td>
+<td>394537008</td>
+<td>419772000</td>
+<td>Family Medicine</td>
+<td>San Jose Family Clinic</td>
+<td>San Jose</td>
+<td>95014</td>
+<td>M-Th 9am - 5pm</td>
+</tr>
+<tr>
+<td>arg-s-9</td>
+<td>Dr. Julian Bashir</td>
+<td>male</td>
+<td>1521001109</td>
+<td>Pediatrics</td>
+<td>394537008</td>
+<td></td>
+<td></td>
+<td>San Francisco Children&#39;s Clinic</td>
+<td>San Francisco</td>
+<td>94110</td>
+<td>Tue-F 8am - 5pm</td>
+</tr>
+</tbody>
+</table>
+
+<h1>Resources avaialable for testing:</h1>
+
+<ul>
+<li>PractitionerRole</li>
+<li>Practitioner</li>
+<li>Organization</li>
+<li>Location</li>
+<li>Schedule (2 weeks from 2017-08-28 to 2017-09-08)</li>
+<li>Slot</li>
+</ul>
