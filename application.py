@@ -25,44 +25,35 @@ logging.info('The logging module is working.')
 ref_server = 'http://sqlonfhir-stu3.azurewebsites.net/fhir'
 count = 100
 def slot_sp_convert(op, actor = None):  # the actor is pract[i]|org[i]|location[i] based on nested loop and OR ing
-    slot_sp = {
-        'slot-type': [],
-        'schedule.actor': None,
-        'start': [],
-        'status': 'free', # fixed for now
-        '_count': count  # fix to 3 for testing
-        }
 
     try:  # visit-types
-        slot_sp['slot-type'] = [k for k in op['visit-type']]
+        f.slot_sp['slot-type'] = [k for k in op['visit-type']]
     except KeyError:
         pass
 
-    slot_sp['schedule.actor'] = actor
-
+    f.slot_sp['schedule.actor'] = actor
+    logging.info('actor = {} of type = {} '.format(actor, type(actor)))
     try:  # date params for slot and schedule
-        slot_sp['start'] = ['ge' + k for k in op['start']]
+        f.slot_sp['start'] = ['ge' + k for k in op['start']]
     except KeyError:
         pass
 
     try:  # date params for slot and schedule
-        slot_sp['start'] = slot_sp['start'] + ['le' + k for k in op['end']]
+        f.slot_sp['start'] = f.slot_sp['start'] + ['le' + k for k in op['end']]
     except KeyError:
         pass
 
     try:  # may get rid of this and apply at the end.
-        slot_sp['_count'] = op['_count']
+        f.slot_sp['_count'] = op['_count']
     except KeyError:
         pass
-
-    return(slot_sp)
+    return(f.slot_sp)
 
 
 def search(ref_server, res_type, sp={}):
     res_id = []
     url = '{}/{}'.format(ref_server, res_type)
-    headers = {'Content-Type': 'application/fhir+json', 'Accept': 'application/fhir+json'}
-    r = requests.get(url, headers=headers, params=sp)
+    r = requests.get(url, headers=f.headers, params=sp)
     # Return server response ...
     try:
         res_id = [i['resource']['id'] for i in r.json()['entry']]
@@ -81,6 +72,18 @@ def search(ref_server, res_type, sp={}):
     except:
         return(r.status_code, r.reason, r.headers, {}, None, None)  # return a tuple access with usual operations  note the json.dumps(dict(r.headers)) make case insensitive dict makes possible to dump
 
+def post_appt(appts):
+    ''' upload pending appts to ref_server:
+        create transation bundle
+        post transaction
+        return operation outcome'''
+    url = '{}/'.format(ref_server)
+    data = bundler(appts,'tr').as_json()
+    logging.info('bundle = {}'.format(json.dumps(data)))
+    r = requests.post(url, headers=f.headers, data = json.dumps(data))
+    logging.info('url= {}\nr.status_code ={}\nr.reason={}\nr.headers=\nr.json()={}'.format(url,r.status_code, r.reason, r.headers, r.json()))
+    return(r.status_code, r.reason, r.headers, r.json())
+
 
 def timestamp():
     # get url freindly time stamp
@@ -90,15 +93,21 @@ def timestamp():
     return(dts)
 
 
+
 def get_slots(op, actor=None):
     slot_sp = slot_sp_convert(op, actor)  # dict of search params converted to FHIR search param for slot
+    logging.info('converted op to sp')
     res_json = search(ref_server, 'Slot', slot_sp)[3]
-    # unbundle res from search results and add to the slot list
-    bundle = Bundle.Bundle(res_json)
-    slots = [be.resource for be in bundle.entry] if bundle is not None and bundle.entry is not None else None
-    # logging.info('slots[0] is: {}'.format(slots[0].as_json()))
-    return(slots)
+    logging.info('fetching slots from ref server: res_json={}'.format(json.dumps(res_json)))
 
+    try:# unbundle res from search results and add to the slot list
+        bundle = Bundle.Bundle(res_json)
+        slots = [be.resource for be in bundle.entry]
+    # logging.info('slots[0] is: {}'.format(slots[0].as_json()))
+        return(slots)
+    except:
+        logging.info('return None if bundle is None or no bundle entries')
+        return(None)
 
 
 
@@ -129,7 +138,7 @@ def make_appts(op, slot=None):
     # create Appt based on slot data
     logging.info('slot as json = {}',format(json.dumps(slot.as_json(),sort_keys=True, indent=4)))
     appt = Appt.Appointment()
-    appt.id = '{}{}'.format(timestamp(), slot.id)
+    appt.id = '{}{}'.format( slot.id,timestamp())
     appt.status = 'pending'
     try: #  mapping serviceType
         appt.serviceType = []  # codeable pattern
@@ -210,24 +219,31 @@ def make_appts(op, slot=None):
     return(appt)
 
 
-def aa_bundler(appts):  # make the operation output bundle
+def bundler(resources, type='aa'):  # make the operation output type = 'aa' or transactions bundle type = 'tr'
     new_bundle = Bundle.Bundle()
-    new_bundle.id = '{}-argo-aab'.format(timestamp())
-    new_bundle.type = 'searchset'
-    new_bundle.total = len(appts)  # need to keep count same a op parameter
+    new_bundle.id = 'argo-{}b-{}'.format(type, timestamp())
+    new_bundle.type = f.bundle_type[type]
     new_bundle.entry = []
-    for res in appts:  #  or appts assume a list of resources
+    for res in resources:  #  list of resources
         entry = Bundle.BundleEntry()
         entry.fullUrl = '{}/{}/{}'.format(ref_server, res.resource_type, res.id)
         entry.resource = res
-        entry.search = Bundle.BundleEntrySearch({'mode':'match'})
+        if type == 'aa':
+            entry.search = Bundle.BundleEntrySearch({'mode':'match'})
+        if type == 'tr':
+            trans = Bundle.BundleEntryRequest()
+            trans.method = 'PUT'
+            trans.url = '{}/{}'.format(res.resource_type,res.id)
+            entry.request = trans
         new_bundle.entry.append(entry)
-    # OO stubbed in here:
-    entry = Bundle.BundleEntry()
-    entry.fullUrl = '{}/{}/{}'.format(ref_server, 'OperationOutcome', new_bundle.id)
-    entry.resource = OO.OperationOutcome(json.loads(f.oo_template))  # make a fixed template for now
-    entry.search = Bundle.BundleEntrySearch({'mode':'outcome'})
-    new_bundle.entry.append(entry)
+    if type == 'aa':
+        new_bundle.total = len(resources)  # need to keep count same a op parameter
+        # OO stubbed in here:
+        entry = Bundle.BundleEntry()
+        entry.fullUrl = '{}/{}/{}'.format(ref_server, 'OperationOutcome', new_bundle.id)
+        entry.resource = OO.OperationOutcome(json.loads(f.oo_template))  # make a fixed template for now
+        entry.search = Bundle.BundleEntrySearch({'mode':'outcome'})
+        new_bundle.entry.append(entry)
     return(new_bundle)
 
 application = Flask(__name__)
@@ -256,7 +272,7 @@ def fhir_fetch(rt, r_id):  # rt = resource type id = resource id
     status_code, reason, headers, res_json, res_id, res_narr = search(ref_server, rt, sp) # return a tuple access with usual operations  note the json.dumps(dict(r.headers)) make case insensitive dict makes possible to dump
     return f.fetch_resource_return.format(rt, r_id, status_code, reason, json.dumps(dict(headers), sort_keys=True, indent=4),res_id, res_narr, json.dumps(dict(res_json), sort_keys=True, indent=4))
 
-@application.route('/Appointment/$find', methods=['GET', 'POST'])  # decorator to map for Appointment availability operation
+@application.route('/Appointment/$find')  # decorator to map for Appointment availability operation  TODO add POST capabilities
 def Appt_find(): # fhir_op = appt operation find|hold|book
     '''
     General approach is to find the slots, create the Appt resources, Post to server and present to user
@@ -271,18 +287,21 @@ def Appt_find(): # fhir_op = appt operation find|hold|book
     appts=[]
     try:
         for actor in op['practitioner']:
-            p_slots = p_slots + get_slots(op,actor)
-    except KeyError:  # no pract specified
+            p_slots = p_slots + get_slots(op, actor)
+    except (KeyError, TypeError):  # no pract specified or null slots returned
+        logging.info('no pract specified or null slots returned')
         pass
     try:
         for actor in op['organization']:
             p_slots = p_slots + get_slots(op,actor)
-    except KeyError:  # no org specified
+    except (KeyError, TypeError):  # no pract specified or null slots returned
+        logging.info('no org specified or null slots returned')
         pass
     try:
         for actor in op['location-reference']:
             l_slots = l_slots + get_slots(op,actor)
-    except KeyError:  # no location specified
+    except (KeyError, TypeError):  # no pract specified or null slots returned
+        logging.info('no loc specified or null slots returned')
         pass
     # filter by pract AND location
     # loop through all the practitioner slots and compare to all location slots then loop back through the filtered locations to get the practiioner slots
@@ -307,20 +326,28 @@ def Appt_find(): # fhir_op = appt operation find|hold|book
         pass
 
     #construct the Appointment from the slots.
-    for slot in slots[0:count]:  # only the first three
+    for slot in slots:  # for slot in slots[0:count] to choke down to only the first three
         appts.append(make_appts(op,slot))
     # and package in a bundle
-    aa_bundle = aa_bundler(appts)
+    # aa_bundle = bundler(appts, 'aa')  # make searchset bundle to display to end user
+    post_appt(appts)  # upload pending appts to ref_server
+
+    # get search bundle back with Appointments
+
+    id_sp = {'_id':','.join([appt.id for appt in appts])} # get appt ids for search ad ?_id=id1,id2,id3,...
+    logging.info('id_sp = {}'.format(id_sp))
+    status_code, reason, headers, res_json, res_id, res_narr = search(ref_server, rt, id_sp) # return a tuple access with usual operations  note the json.dumps(dict(r.headers)) make case insensitive dict makes possible to dump# get appts from the ref_server
+
 
     try:
-        return f.operation_find_return.format('Slot', op, len(slots), [s.as_json() for s in slots], json.dumps(aa_bundle.as_json(), sort_keys=True, indent=4))
+        return f.operation_find_return.format( op, '<ol><li>{}</li></ol>'.format('</li><li>'.join([i for i in res_id])), '<ol><li>{}</li></ol>'.format('</li> <li>'.join([i for i in res_narr])), json.dumps(dict(res_json), sort_keys=True, indent=4))
     except TypeError:
-        return f.operation_find_exception_return.format('Slot', op)
+        return f.operation_find_exception_return.format(op)
 
 @application.route('/Appointment/$hold', methods=['POST'])  # decorator to map for Appointment hold operation
 def Appt_hold():
     '''
-    General approach is to...
+    General approach is to do a include search for the appt and slot, check if statuses are ok and then update statuses
     '''
     rt = 'Appointment'  # rt = resource typei
     op = dict(request.args)

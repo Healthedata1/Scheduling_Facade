@@ -126,3 +126,5 @@ slots not must supportedin appt profile  - make issue
 
 
 next step is to create appts and post to server.
+ load aa to server
+ generalize bundler for transactions and outputs

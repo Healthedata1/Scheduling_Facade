@@ -348,17 +348,22 @@ fetch_resource_return = '''
 
 operation_find_return = '''
 <?xml version="1.0" encoding="UTF-8"?>
-<h3>Operation $find returns the Search bundle for the {} resource with the operation parameters: {}:</h3>
-<br />
-<strong># slots returned</strong>: {}
-<br />
-<strong># Slot list as Python dicts</strong>: {}
-<br />
-<strong># Appt Output Bundle list as json </strong>: <pre>{}</pre>
+<h3>Operation $find returns the Search bundle for the Appointment resource with the operation parameters: {}:</h3>
+<ul>
+<li>
+<strong>Appt resource ids </strong>: {}
+</li>
+<li>
+<strong>Appt resource narratives </strong>: {}
+</li>
+<li>
+<strong>Appt Output Bundle as json </strong>: <pre>{}</pre>
+</li>
+</ul>
 '''
 
 operation_find_exception_return = '''
-<h3>Operation $find returns the Search bundle for the {} resource with the operation parameters: {}:</h3>
+<h3>Operation $find returns the Search bundle for the Appointment resource with the operation parameters: {}:</h3>
 <br />
 No Appointments for those input parameters :-(
 '''
@@ -366,3 +371,15 @@ No Appointments for those input parameters :-(
 operation_hold_return ='''
 <?xml version="1.0" encoding="UTF-8"?>'This is the {} {} operation with this {} url using the {} method and these filter parameters {}
 '''
+
+bundle_type = {'aa': 'searchset', 'tr': 'transaction'}
+
+headers = {'Content-Type': 'application/fhir+json', 'Accept': 'application/fhir+json'}
+
+slot_sp = {
+    'slot-type': [],
+    'schedule.actor': None,
+    'start': [],
+    'status': 'free',  # fixed for now
+    '_count': 3  # fix to 3 for testing
+    }
