@@ -9,6 +9,7 @@ import fhirtemplates as f
 import fhirclient.models.appointment as Appt
 import fhirclient.models.bundle as Bundle
 import fhirclient.models.slot as Slot
+import fhirclient.models.parameters as Param
 import fhirclient.models.operationoutcome as OO
 import fhirclient.models.fhirreference as FRef
 import fhirclient.models.fhirdate as FDate
@@ -53,6 +54,7 @@ def slot_sp_convert(op, actor = None):  # the actor is pract[i]|org[i]|location[
 def search(ref_server, res_type, sp={}):
     res_id = []
     url = '{}/{}'.format(ref_server, res_type)
+    logging.info('sp = {}  url = {}'.format(sp, url))
     r = requests.get(url, headers=f.headers, params=sp)
     # Return server response ...
     try:
@@ -82,7 +84,7 @@ def post_appt(appts):
     logging.info('bundle = {}'.format(json.dumps(data)))
     r = requests.post(url, headers=f.headers, data = json.dumps(data))
     logging.info('url= {}\nr.status_code ={}\nr.reason={}\nr.headers=\nr.json()={}'.format(url,r.status_code, r.reason, r.headers, r.json()))
-    return(r.status_code, r.reason, r.headers, r.json())
+    return (r.status_code, r.reason, r.headers, r.json())
 
 
 def timestamp():
@@ -90,26 +92,33 @@ def timestamp():
     dts = str(datetime.datetime.utcnow().isoformat())
     dts = dts.replace(':', '')
     dts = dts.replace('.', '')
-    return(dts)
+    return dts
 
 
+def status_check(res_json):  # undbundle and for slots in bundle check if SLot status == "free"  and Appointment is "proposed"
+    res_list = unbundle(res_json)
+    logging.info('res.resource_type={}'.format(res_list[0].resource_type))
+    logging.info('res.status={}'.format(res_list[0].status))
+    check  =  [res.resource_type in ['Slot','Appointment'] and res.status in ['free','pending'] for res in res_list]
+    logging.info('check = {}'.format(check))
+    return all(check) # return True or False
 
 def get_slots(op, actor=None):
     slot_sp = slot_sp_convert(op, actor)  # dict of search params converted to FHIR search param for slot
     logging.info('converted op to sp')
     res_json = search(ref_server, 'Slot', slot_sp)[3]
     logging.info('fetching slots from ref server: res_json={}'.format(json.dumps(res_json)))
+    return unbundle(res_json)
 
-    try:# unbundle res from search results and add to the slot list
+def unbundle(res_json):
+    try:  # unbundle res from search results and add to the res list
         bundle = Bundle.Bundle(res_json)
-        slots = [be.resource for be in bundle.entry]
+        res = [be.resource for be in bundle.entry]
     # logging.info('slots[0] is: {}'.format(slots[0].as_json()))
-        return(slots)
+        return(res)
     except:
         logging.info('return None if bundle is None or no bundle entries')
         return(None)
-
-
 
 def map_cc(concept):
     # create CodeableConcept based on slot data
@@ -246,6 +255,7 @@ def bundler(resources, type='aa'):  # make the operation output type = 'aa' or t
         new_bundle.entry.append(entry)
     return(new_bundle)
 
+
 application = Flask(__name__)
 
 
@@ -326,7 +336,7 @@ def Appt_find(): # fhir_op = appt operation find|hold|book
         pass
 
     #construct the Appointment from the slots.
-    for slot in slots:  # for slot in slots[0:count] to choke down to only the first three
+    for slot in slots:  # for slot in slots[i0:count] to choke down to only the first three
         appts.append(make_appts(op,slot))
     # and package in a bundle
     # aa_bundle = bundler(appts, 'aa')  # make searchset bundle to display to end user
@@ -347,16 +357,36 @@ def Appt_find(): # fhir_op = appt operation find|hold|book
 @application.route('/Appointment/$hold', methods=['POST'])  # decorator to map for Appointment hold operation
 def Appt_hold():
     '''
-    General approach is to do a include search for the appt and slot, check if statuses are ok and then update statuses
+    General approach is to do a include search for the appt and slots if supported),  if includes are not supported  get the appt and fetch all the associated slots.  check if statuses are ok if so then update statuses if not then don't update :-(  Alternative is to fetch actors schedules for actors and times and look in  and then fetch slots with for the schedule and time
+    hold input parameters:
+    1. appt-id  - this use case map to _id sp
+    2. appt-resource ( for prefetching )  not use here
+    return an appt avaiability bundle
     '''
     rt = 'Appointment'  # rt = resource typei
-    op = dict(request.args)
-    return f.operation_hold_return.format(rt, '$hold', request.url, request.method, op)
+    content = request.get_json()
+    logging.info('content = {} type ={}'.format(content ,type(content)))
+    params = Param.Parameters(content)
+    logging.info('params.parameter[0].valueUri = {} '.format(params.parameter[0].valueUri))
+    hold_sp = {'_id':params.parameter[0].valueUri,'_include':'Appointment:slot'} #map op to sp
+    status_code, reason, headers, res_json, res_id, res_narr = search(ref_server, rt, hold_sp)
+    logging.info('res_id = {} '.format(json.dumps(res_id)))
+    #include search for the appt and slots
+    #for slots in bundle check if status == "free"  and Appointment is "proposed"
+    if res_json: # if not none
+        if status_check(res_json):   #for search and for slots in bundle check if status == "free"  and Appointment is "proposed"
+        # TODO update statuses to pending'''
+
+            return f.operation_hold_confirm.format(rt, '$hold', rt, params.parameter[0].valueUri, res_narr, json.dumps(dict(res_json), sort_keys=True, indent=4) )
+        else:
+            return f.operation_hold_reject.format(rt, '$hold', rt, params.parameter[0].valueUri)
+    else:
+        return f.operation_hold_reject.format(rt, '$hold', rt, params.parameter[0].valueUri)
 
 @application.route('/Appointment/$book', methods=['POST'])  # decorator to map for Appointment hold operation
 def Appt_book():
     '''
-    General approach is to...
+    General approach is to. TODO ..same as hold
     '''
     rt = 'Appointment'  # rt = resource type
     op = dict(request.args)

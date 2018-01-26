@@ -368,9 +368,22 @@ operation_find_exception_return = '''
 No Appointments for those input parameters :-(
 '''
 
-operation_hold_return ='''
-<?xml version="1.0" encoding="UTF-8"?>'This is the {} {} operation with this {} url using the {} method and these filter parameters {}
+operation_hold_confirm ='''
+<h3>The {} {} operation for <pre>{}/{}</pre>} was successful:</h3>
+<ul>
+<li>
+<strong>Appt resource narratives </strong>: {}
+</li>
+<li>
+<strong>Appt Output Bundle as json </strong>: <pre>{}</pre>
+</li>
+</ul>
 '''
+
+operation_hold_reject ='''
+<h3>The {} {} operation for <pre>{}/{}</pre> failed :-(</h3>
+'''
+
 
 bundle_type = {'aa': 'searchset', 'tr': 'transaction'}
 
