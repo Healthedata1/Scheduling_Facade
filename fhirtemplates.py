@@ -332,15 +332,7 @@ headers = <pre>{}</pre>
 
 fetch_resource_return = '''
 <h3>Fetched the {}/{} resource:</h3>
-<br />
-<strong>status code</strong> = {}
-<br />
-<strong>reason</strong> = {}
-<br />
-<strong>headers</strong> = <pre>{}</pre>
-<br />
-<strong>resource id</strong> = {}
-<br />
+<br /><br />
 <strong>resource narrative</strong> = {}
 <br />
 <strong>resource as json</strong> = <pre>{}</pre>
@@ -368,8 +360,8 @@ operation_find_exception_return = '''
 No Appointments for those input parameters :-(
 '''
 
-operation_hold_confirm ='''
-<h3>The {} {} operation for <pre>{}/{}</pre>} was successful:</h3>
+operation_hold_confirm = '''
+<h3>The {} {} operation for appt_id <pre>{}</pre> was successful:</h3>
 <ul>
 <li>
 <strong>Appt resource narratives </strong>: {}
@@ -395,4 +387,14 @@ slot_sp = {
     'start': [],
     'status': 'free',  # fixed for now
     '_count': 3  # fix to 3 for testing
+    }
+
+slot_status = {
+    'hold': (['free', 'busy-tentative'], 'busy-tentative'),
+    'book': (['free', 'busy-tentative'], 'busy-tentative')
+    }
+
+appt_status = {
+    'hold': (['proposed'], 'pending'),
+    'book': (['proposed', 'pending'], 'pending')
     }

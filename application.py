@@ -60,30 +60,37 @@ def search(ref_server, res_type, sp={}):
     try:
         res_id = [i['resource']['id'] for i in r.json()['entry']]
     except KeyError:
+        logging.info("res_id failed :-(")
         pass
-    except ValueError:  # includes simplejson.decoder.JSONDecodeError
+    except ValueError:
+        logging.info('res_id failed :-( poss includes simplejson.decoder.JSONDecodeError')
         pass
     try:
         res_narr = [i['resource']['text']['div'] for i in r.json()['entry']]
     except KeyError:
+        logging.info('res_id failed :-( poss includes simplejson.decoder.JSONDecodeError')
         pass
     except ValueError:  # includes simplejson.decoder.JSONDecodeError
+        logging.info('res_narr failed :-( poss includes simplejson.decoder.JSONDecodeError')
         pass
     try:
         return(r.status_code, r.reason, r.headers, r.json(), res_id, res_narr) # return a tuple access with usual operations
+        logging.info("successful GET!!")
     except:
+        logging.info("unsuccessful GET :-( status code = {}, reason = {} and headers = {}".format(r.status_code, r.reason, r.headers))
+
         return(r.status_code, r.reason, r.headers, {}, None, None)  # return a tuple access with usual operations  note the json.dumps(dict(r.headers)) make case insensitive dict makes possible to dump
 
-def post_appt(appts):
+def post_appt(resources):
     ''' upload pending appts to ref_server:
         create transation bundle
         post transaction
         return operation outcome'''
-    url = '{}/'.format(ref_server)
-    data = bundler(appts,'tr').as_json()
+
+    data = bundler(resources,'tr').as_json()
     logging.info('bundle = {}'.format(json.dumps(data)))
-    r = requests.post(url, headers=f.headers, data = json.dumps(data))
-    logging.info('url= {}\nr.status_code ={}\nr.reason={}\nr.headers=\nr.json()={}'.format(url,r.status_code, r.reason, r.headers, r.json()))
+    r = requests.post(ref_server, headers=f.headers, data = json.dumps(data))
+    logging.info('url= {}\nr.status_code ={}\nr.reason={}\nr.headers=\nr.json()={}'.format(ref_server,r.status_code, r.reason, r.headers, r.json()))
     return (r.status_code, r.reason, r.headers, r.json())
 
 
@@ -95,13 +102,42 @@ def timestamp():
     return dts
 
 
-def status_check(res_json):  # undbundle and for slots in bundle check if SLot status == "free"  and Appointment is "proposed"
-    res_list = unbundle(res_json)
-    logging.info('res.resource_type={}'.format(res_list[0].resource_type))
-    logging.info('res.status={}'.format(res_list[0].status))
-    check  =  [res.resource_type in ['Slot','Appointment'] and res.status in ['free','pending'] for res in res_list]
-    logging.info('check = {}'.format(check))
-    return all(check) # return True or False
+def status_check(ref):  # fetch resources and check for for slots in bundle check if SLot status == "free"  and Appointment is "proposed" if all good then do a PUT transaction with updated status of "pending" TODO update the participant statuses
+    logging.info('starting status_check...')
+    res_json = []
+    r = requests.get(url='{}/{}'.format(ref_server,ref), headers=f.headers) # fetch appointment
+    appointment=Appt.Appointment(r.json())
+
+    logging.info('appt={}\n of type= {} with id ={}'.format(appointment.as_json(), type(appointment), appointment.id))
+
+    slots=[]
+    # get the list of slots from the appointment
+    for slot_ref in appointment.slot:
+        logging.info('slot as dict ={}'.format(slot_ref.as_json()))
+        ref = FRef.FHIRReference(slot_ref.as_json()).reference
+        logging.info('ref={}'.format(ref))
+        r = requests.get(url='{}/{}'.format(ref_server,ref),  headers=f.headers) # fetch slot
+        slot=Slot.Slot(r.json())
+        slots.append(slot)
+        logging.info('slot={}'.format(slots[-1].as_json()))
+
+    #if hold:  ( do this for book too)
+    if appointment.status == 'proposed' and all(slot.status in ['free', 'busy-tentative'] for slot in slots): # NOTE in brian's server updates automatically upon posting appointments.  so assume for now that busy-tentative = free  and imagine update statuses  busy-tentative
+            logging.info('update statuses...')
+            appointment.status = 'pending' # update statuses
+            appointment.text = None # strip text  adn let server update
+            # TODO update actor statuses to 'tentative'
+            for slot in slots:
+                slot.status = "busy-tentative"  # **** NOTE *** brian's server updates automatically upon posting appointments.  so assume for now that busy-tentative = free update statuses and update to busey - unavailable
+                slot.text = None # strip narrative let server update
+
+    else:
+        logging.info('hold rejected...')
+        return (False)  # hold rejected
+
+    post_appt([appointment] + slots)
+    return (True) # hold completed
+
 
 def get_slots(op, actor=None):
     slot_sp = slot_sp_convert(op, actor)  # dict of search params converted to FHIR search param for slot
@@ -148,7 +184,7 @@ def make_appts(op, slot=None):
     logging.info('slot as json = {}',format(json.dumps(slot.as_json(),sort_keys=True, indent=4)))
     appt = Appt.Appointment()
     appt.id = '{}{}'.format( slot.id,timestamp())
-    appt.status = 'pending'
+    appt.status = 'proposed'
     try: #  mapping serviceType
         appt.serviceType = []  # codeable pattern
         for concept in slot.serviceType:
@@ -177,7 +213,7 @@ def make_appts(op, slot=None):
 
     appt.start = slot.start
     appt.end = slot.end
-    appt.slot =[FRef.FHIRReference({'reference': 'Slot/{}'.format(slot.id)})]  # option a
+    appt.slot = [FRef.FHIRReference({'reference': 'Slot/{}'.format(slot.id)})]  # option a
 
     appt.participant = []
     '''
@@ -205,7 +241,7 @@ def make_appts(op, slot=None):
     except KeyError:
         pass
     try:
-        for url in op['patient-reference']:
+        for url in op['patient-reference']: #TODO add patient stub in for now
             appt.participant.append(map_part(url))
     except KeyError:
         pass
@@ -229,11 +265,13 @@ def make_appts(op, slot=None):
 
 
 def bundler(resources, type='aa'):  # make the operation output type = 'aa' or transactions bundle type = 'tr'
+    logging.info("starting bundler...")
     new_bundle = Bundle.Bundle()
     new_bundle.id = 'argo-{}b-{}'.format(type, timestamp())
     new_bundle.type = f.bundle_type[type]
     new_bundle.entry = []
     for res in resources:  #  list of resources
+        logging.info('res ={}'.format(res))
         entry = Bundle.BundleEntry()
         entry.fullUrl = '{}/{}/{}'.format(ref_server, res.resource_type, res.id)
         entry.resource = res
@@ -253,6 +291,7 @@ def bundler(resources, type='aa'):  # make the operation output type = 'aa' or t
         entry.resource = OO.OperationOutcome(json.loads(f.oo_template))  # make a fixed template for now
         entry.search = Bundle.BundleEntrySearch({'mode':'outcome'})
         new_bundle.entry.append(entry)
+    logging.info('new_bundle={}'.format(new_bundle.as_json()))
     return(new_bundle)
 
 
@@ -278,9 +317,11 @@ def fhir_search(rt):  # rt = resource type
 def fhir_fetch(rt, r_id):  # rt = resource type id = resource id
     # check if is valid resource
     sp = dict(request.args)  # sp = search parameters everything after the ?
-    sp['_id'] = r_id
-    status_code, reason, headers, res_json, res_id, res_narr = search(ref_server, rt, sp) # return a tuple access with usual operations  note the json.dumps(dict(r.headers)) make case insensitive dict makes possible to dump
-    return f.fetch_resource_return.format(rt, r_id, status_code, reason, json.dumps(dict(headers), sort_keys=True, indent=4),res_id, res_narr, json.dumps(dict(res_json), sort_keys=True, indent=4))
+
+    res = requests.get(url='{}/{}/{}'.format(ref_server,rt,r_id), headers=f.headers) # fetch resource by id
+    res_narr = res.json()['text']['div']
+
+    return f.fetch_resource_return.format(rt, r_id, res_narr, json.dumps(dict(res.json()), sort_keys=True, indent=4))
 
 @application.route('/Appointment/$find')  # decorator to map for Appointment availability operation  TODO add POST capabilities
 def Appt_find(): # fhir_op = appt operation find|hold|book
@@ -291,6 +332,7 @@ def Appt_find(): # fhir_op = appt operation find|hold|book
     '''
     rt = 'Appointment'  # rt = resource type
     op = dict(request.args)
+    logging.info('these are the operation arguments:{}'.format(op))
     slots = []
     p_slots = []
     l_slots = []
@@ -313,17 +355,16 @@ def Appt_find(): # fhir_op = appt operation find|hold|book
     except (KeyError, TypeError):  # no pract specified or null slots returned
         logging.info('no loc specified or null slots returned')
         pass
-    # filter by pract AND location
-    # loop through all the practitioner slots and compare to all location slots then loop back through the filtered locations to get the practiioner slots
+
     if p_slots and l_slots:
-        for ps in p_slots:
-            slots = [ls for ls in l_slots if ls.start == ps.start]  #  use the start times for now
-        for ls in slots:
-            slots = [ps for ps in p_slots if ls.start == ps.start]  #  use the start times for now
+        # filter by pract AND location
+        # loop through all the practitioner slots and compare to all location slots then loop back through the filtered locations to get the practiioner slots
+        slots = [l for l in l_slots if any(l.start == p.start for p in p_slots)]  # use the start times for now
+        slots = [p for p in p_slots if any(p.start == s.start for s in slots)]
     elif not p_slots and not l_slots:  # no actors
         slots = slots + get_slots(op)
     else:
-        slots= p_slots + l_slots
+        slots= p_slots + l_slots  # loc or pract/org search
     # status_code, reason, headers, res_json, res_id, res_narr = search(ref_server, 'Slot', slot_sp)  # return a tuple access with usual operations  note the json.dumps(idict(r.headers)) make case insensitive dict makes possible to dump
 
     # filter slots for specialty - since not a standard FHIR search parameter
@@ -356,8 +397,9 @@ def Appt_find(): # fhir_op = appt operation find|hold|book
 
 @application.route('/Appointment/$hold', methods=['POST'])  # decorator to map for Appointment hold operation
 def Appt_hold():
+    logging.info('operation $hold...')
     '''
-    General approach is to do a include search for the appt and slots if supported),  if includes are not supported  get the appt and fetch all the associated slots.  check if statuses are ok if so then update statuses if not then don't update :-(  Alternative is to fetch actors schedules for actors and times and look in  and then fetch slots with for the schedule and time
+    General approach is to get the appt and fetch all the associated slots.   (include is not an option here) check if statuses are ok if so then update statuses if not then don't update :-(
     hold input parameters:
     1. appt-id  - this use case map to _id sp
     2. appt-resource ( for prefetching )  not use here
@@ -365,28 +407,22 @@ def Appt_hold():
     '''
     rt = 'Appointment'  # rt = resource typei
     content = request.get_json()
-    logging.info('content = {} type ={}'.format(content ,type(content)))
+    # logging.info('content = {} type ={}'.format(content ,type(content)))
     params = Param.Parameters(content)
-    logging.info('params.parameter[0].valueUri = {} '.format(params.parameter[0].valueUri))
-    hold_sp = {'_id':params.parameter[0].valueUri,'_include':'Appointment:slot'} #map op to sp
-    status_code, reason, headers, res_json, res_id, res_narr = search(ref_server, rt, hold_sp)
-    logging.info('res_id = {} '.format(json.dumps(res_id)))
-    #include search for the appt and slots
-    #for slots in bundle check if status == "free"  and Appointment is "proposed"
-    if res_json: # if not none
-        if status_check(res_json):   #for search and for slots in bundle check if status == "free"  and Appointment is "proposed"
-        # TODO update statuses to pending'''
+    # logging.info('params.parameter[0].valueUri = {} less Appointment/ ={} '.format(params.parameter[0].valueUri, params.parameter[0].valueUri.split('Appointment/')[-1]))
+    appt_ref = params.parameter[0].valueUri  #map op to sp assuming is relative ref.
 
-            return f.operation_hold_confirm.format(rt, '$hold', rt, params.parameter[0].valueUri, res_narr, json.dumps(dict(res_json), sort_keys=True, indent=4) )
-        else:
-            return f.operation_hold_reject.format(rt, '$hold', rt, params.parameter[0].valueUri)
-    else:
+    logging.info('appt = {}'.format(appt_ref))
+    if status_check(appt_ref):   #for search and for slots in bundle check if status == "free"  and Appointment is "proposed" update all to pending
+        status_code, reason, headers, res_json, res_id, res_narr = search(ref_server, rt, sp={'_id': appt_ref.split('/')[-1]}) # retrieve teh search bundle from the ref server using the id only
+        return f.operation_hold_confirm.format(rt, '$hold', appt_ref, res_narr[0], json.dumps(dict(res_json), sort_keys=True, indent=4))
+    else: # if none type or unable to hold
         return f.operation_hold_reject.format(rt, '$hold', rt, params.parameter[0].valueUri)
 
 @application.route('/Appointment/$book', methods=['POST'])  # decorator to map for Appointment hold operation
 def Appt_book():
     '''
-    General approach is to. TODO ..same as hold
+    General approach is to .same as hold except update from pending to booked
     '''
     rt = 'Appointment'  # rt = resource type
     op = dict(request.args)
